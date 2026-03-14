@@ -16,7 +16,7 @@ if not api_key:
     st.error("🔑 API Key Missing! Please add 'GEMINI_API_KEY' to Streamlit Secrets.")
 else:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')2w
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     # Centered Inputs
     left, center, right = st.columns([1, 2, 1])
