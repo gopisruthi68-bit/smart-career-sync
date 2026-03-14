@@ -5,92 +5,124 @@ import re
 import time
 from PyPDF2 import PdfReader
 
-# 1. Setup Page
-st.set_page_config(page_title="Bulk AI Resume Ranker", layout="wide")
-st.title("📂 Bulk AI Resume & LinkedIn Aligner")
-st.subheader("Analyze multiple candidates against one Job Description")
+# 1. Page Config
+st.set_page_config(page_title="AI Recruitment Tool", layout="wide")
 
-# 2. Get API Key from Secrets
+# Custom CSS for Centering and Styling
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 38px !important;
+        font-weight: bold;
+        color: #1E3A8A;
+        text-align: center;
+        margin-top: -30px;
+    }
+    .sub-header {
+        font-size: 18px !important;
+        color: #6B7280;
+        text-align: center;
+        margin-bottom: 40px;
+    }
+    /* Style the table for transparency */
+    .stDataFrame {
+        border-radius: 10px;
+    }
+    </style>
+    """, unsafe_allow_input=True)
+
+# Headings
+st.markdown('<div class="main-header">AI Recruitment: Transparency and Optimization</div>', unsafe_allow_input=True)
+st.markdown('<div class="sub-header">Data-Driven Candidate Alignment & Skill Gap Analysis</div>', unsafe_allow_input=True)
+
+# 2. API Setup
 api_key = st.secrets.get("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("API Key not found! Please add GEMINI_API_KEY to Streamlit Secrets.")
+    st.error("🔑 API Key Missing! Please add 'GEMINI_API_KEY' to your Streamlit Secrets.")
 else:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
 
-    # 3. Sidebar Inputs
-    st.sidebar.header("Upload Data")
-    jd_text = st.sidebar.text_area("Paste Job Description (JD) here:", height=200)
-    
-    # ALLOW MULTIPLE FILES
-    uploaded_files = st.sidebar.file_uploader("Upload Resumes (PDF)", type="pdf", accept_multiple_files=True)
+    # --- CENTERED INPUT SECTION ---
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-    if st.sidebar.button("Run Bulk Analysis") and jd_text and uploaded_files:
+    with col2:
+        st.write("### 📥 Input Panel")
+        jd_text = st.text_area("Job Description (JD)", placeholder="Paste the job requirements here...", height=150)
+        linkedin_url = st.text_input("Candidate LinkedIn URL (Optional)", placeholder="https://linkedin.com/in/username")
+        uploaded_files = st.file_uploader("Upload Resumes (Select multiple PDFs)", type="pdf", accept_multiple_files=True)
+        
+        analyze_btn = st.button("🚀 Analyze & Optimize", use_container_width=True)
+
+    st.divider()
+
+    # 3. Processing Logic
+    if analyze_btn and jd_text and uploaded_files:
         results = []
         progress_bar = st.progress(0)
         
-        st.write(f"🔍 Analyzing {len(uploaded_files)} resumes...")
-
         for index, file in enumerate(uploaded_files):
             try:
-                # Update Progress
+                # Update UI Progress
                 progress = (index + 1) / len(uploaded_files)
                 progress_bar.progress(progress)
                 
-                # Step A: Extract Text
+                # PDF Text Extraction
                 reader = PdfReader(file)
-                resume_text = "".join([page.extract_text() for page in reader.pages])
+                resume_text = "".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-                # Step B: AI Prompt
+                # Targeted AI Prompt for Key Points and Skill Gaps
                 prompt = f"""
-                Analyze the following Resume against the Job Description (JD).
+                Analyze this candidate for transparency and optimization.
                 JD: {jd_text}
                 Resume: {resume_text}
+                LinkedIn: {linkedin_url if linkedin_url else "Not provided"}
 
-                Return ONLY this format:
-                MATCH_SCORE: [0-100]
-                MISSING_SKILLS: [skill1, skill2, skill3, skill4, skill5]
+                Provide the evaluation in this EXACT format:
+                SCORE: [0-100]
+                SKILL_GAPS: [List only the 3 most critical missing skills]
+                KEY_POINTS: [One short bullet point on resume optimization]
                 """
 
-                # Step C: Get AI Response
                 response = model.generate_content(prompt).text
                 
-                # Step D: Filter/Parse the results
-                score_match = re.search(r'MATCH_SCORE:\s*(\d+)', response)
-                skills_match = re.search(r'MISSING_SKILLS:\s*\[(.*?)\]', response)
-                
-                score = int(score_match.group(1)) if score_match else 0
-                skills = skills_match.group(1) if skills_match else "N/A"
+                # Parsing results
+                score_match = re.search(r'SCORE:\s*(\d+)', response)
+                skills_match = re.search(r'SKILL_GAPS:\s*\[(.*?)\]', response)
+                points_match = re.search(r'KEY_POINTS:\s*\[(.*?)\]', response)
 
-                # Save to list
                 results.append({
-                    "Candidate Name": file.name,
-                    "Match Score (%)": score,
-                    "Top Missing Skills": skills
+                    "Candidate": file.name,
+                    "Optimization Score": f"{score_match.group(1)}%" if score_match else "0%",
+                    "Critical Skill Gaps": skills_match.group(1) if skills_match else "None",
+                    "Optimization Key Point": points_match.group(1) if points_match else "Profile looks optimal"
                 })
 
-                # Small delay to prevent API rate limiting
-                time.sleep(2)
+                time.sleep(2) # Protect against API rate limits
 
             except Exception as e:
-                st.warning(f"Could not process {file.name}: {e}")
+                st.error(f"Error processing {file.name}")
 
-        # 4. Display Results in a Table
-        df = pd.DataFrame(results)
-        
-        # Sort by best match
-        df = df.sort_values(by="Match Score (%)", ascending=False)
-        
-        st.success("✅ Analysis Complete!")
-        st.balloons()
-        
-        # Show Table
-        st.dataframe(df, use_container_width=True)
+        # 4. Results & Download Option
+        if results:
+            st.balloons()
+            df = pd.DataFrame(results)
+            
+            st.subheader("📊 Candidate Optimization Table")
+            # Displaying the table centered and full width
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # Download Report
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Analysis Report (CSV)", data=csv, file_name="bulk_report.csv", mime="text/csv")
+            # THE DOWNLOAD OPTION
+            st.write("---")
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Optimization Report (CSV)",
+                data=csv,
+                file_name="AI_Recruitment_Report.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
-    elif not jd_text or not uploaded_files:
-        st.info("Please paste a JD and upload at least one resume to start.")
+    elif analyze_btn:
+        st.warning("⚠️ Please provide both a Job Description and Resumes.")
