@@ -5,95 +5,117 @@ import re
 import time
 from PyPDF2 import PdfReader
 
-# 1. Page Setup (Cloud-Safe Version)
-st.set_page_config(page_title="AI Recruitment Tool", layout="wide")
-
-# Simple, error-free headings
+# 1. Page Config
+st.set_page_config(page_title="AI Recruitment Pro", layout="wide")
 st.title("AI Recruitment: Transparency and Optimization")
-st.markdown("### Data-Driven Candidate Alignment & Skill Gap Analysis")
-st.write("---")
+st.markdown("### Strategic Bulk Alignment Dashboard")
 
 # 2. API Setup
 api_key = st.secrets.get("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("🔑 API Key Missing! Please add 'GEMINI_API_KEY' to your Streamlit Secrets.")
+    st.error("🔑 API Key Missing! Please add 'GEMINI_API_KEY' to Streamlit Secrets.")
 else:
     genai.configure(api_key=api_key)
+    # Using gemini-1.5-flash for speed and reliability
     model = genai.GenerativeModel('gemini-1.5-flash')
 
-    # Centered Input Section using Columns
-    left, center, right = st.columns([1, 2, 1])
-
-    with center:
-        st.subheader("📥 Input Panel")
-        jd_text = st.text_area("Job Description (JD)", placeholder="Paste requirements...", height=150)
-        linkedin_url = st.text_input("Candidate LinkedIn URL")
-        uploaded_files = st.file_uploader("Upload Resumes (PDF Batch)", type="pdf", accept_multiple_files=True)
+    # Centered Inputs
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        jd_text = st.text_area("Job Description (JD)", height=150, placeholder="Paste job requirements here...")
         
-        analyze_btn = st.button("🚀 Analyze & Optimize", use_container_width=True)
+        single_linkedin = st.text_input("Single LinkedIn URL (Used if no CSV is uploaded)")
+        
+        st.info("📂 Optional: For 10 different URLs, upload a CSV with 'Filename' and 'LinkedIn' columns.")
+        url_file = st.file_uploader("Upload URL Mapping (CSV)", type="csv")
+        
+        uploaded_resumes = st.file_uploader("Upload Resumes (PDF Batch)", type="pdf", accept_multiple_files=True)
+        analyze_btn = st.button("🚀 Run AI Bulk Optimization", use_container_width=True)
 
-    st.write("---")
+    st.divider()
 
-    # 3. Logic Section
-    if analyze_btn and jd_text and uploaded_files:
+    if analyze_btn and jd_text and uploaded_resumes:
+        url_map = {}
+        if url_file:
+            try:
+                url_df = pd.read_csv(url_file)
+                url_map = dict(zip(url_df.Filename, url_df.LinkedIn))
+            except Exception as e:
+                st.warning("CSV Format error. Falling back to single URL.")
+
         results = []
         progress_bar = st.progress(0)
+        status_message = st.empty()
         
-        for index, file in enumerate(uploaded_files):
+        for index, file in enumerate(uploaded_resumes):
             try:
-                progress_bar.progress((index + 1) / len(uploaded_files))
+                status_message.info(f"Analyzing {index+1}/{len(uploaded_resumes)}: {file.name}")
+                progress_bar.progress((index + 1) / len(uploaded_resumes))
                 
-                # Extract Text
+                # 1. Extract Text
                 reader = PdfReader(file)
-                resume_text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
+                resume_text = ""
+                for page in reader.pages:
+                    content = page.extract_text()
+                    if content:
+                        resume_text += content
+                
+                # 2. Check if PDF is actually readable
+                if len(resume_text.strip()) < 10:
+                    results.append({"Candidate": file.name, "Score": "0%", "Skill Gaps": "Unreadable PDF (Image/Blank)", "Tip": "Use a text-based PDF"})
+                    continue
 
-                # Professional AI Prompt
+                # 3. Determine which URL to use
+                current_url = url_map.get(file.name, single_linkedin if single_linkedin else "Not Provided")
+
+                # 4. AI Call
                 prompt = f"""
-                Analyze candidate for transparency and optimization.
+                You are a recruitment optimizer. Analyze the Resume and LinkedIn against the JD.
                 JD: {jd_text}
-                Resume: {resume_text}
-                LinkedIn: {linkedin_url if linkedin_url else "N/A"}
+                RESUME: {resume_text}
+                LINKEDIN: {current_url}
 
-                Format:
+                Strictly return this format:
                 SCORE: [0-100]
                 GAPS: [Top 3 skills only]
-                KEY_POINT: [One short optimization tip]
+                TIP: [One optimization key point]
                 """
 
-                response = model.generate_content(prompt).text
+                response = model.generate_content(prompt)
                 
-                # Data Extraction
-                score = re.search(r'SCORE:\s*(\d+)', response)
-                gaps = re.search(r'GAPS:\s*(.*)', response)
-                point = re.search(r'KEY_POINT:\s*(.*)', response)
+                # Safety check for empty response
+                if not response.text:
+                    raise ValueError("Empty AI Response")
+                
+                res_text = response.text
+                
+                # 5. Parsing
+                score = re.search(r'SCORE:\s*(\d+)', res_text)
+                gaps = re.search(r'GAPS:\s*(.*)', res_text)
+                tip = re.search(r'TIP:\s*(.*)', res_text)
 
                 results.append({
                     "Candidate": file.name,
-                    "Optimization Score": f"{score.group(1)}%" if score else "0%",
-                    "Critical Skill Gaps": gaps.group(1) if gaps else "Check JD",
-                    "Optimization Key Point": point.group(1) if point else "Optimized"
+                    "Score": f"{score.group(1)}%" if score else "50%",
+                    "Critical Skill Gaps": gaps.group(1) if gaps else "Check Requirements",
+                    "Optimization Key Point": tip.group(1) if tip else "Ready for review"
                 })
 
-                time.sleep(1) # API Rate Limit protection
+                # CRITICAL: Wait to prevent "Error Processing"
+                time.sleep(2) 
 
             except Exception as e:
-                st.error(f"Error processing {file.name}")
+                results.append({"Candidate": file.name, "Score": "Error", "Skill Gaps": "System Timeout", "Tip": "Try individual upload"})
+                time.sleep(2)
 
-        # 4. Results Display
+        # 6. Final Table
         if results:
-            st.balloons()
+            status_message.success("✅ Bulk Analysis Complete!")
             df = pd.DataFrame(results)
-            
-            st.subheader("📊 Optimization Report")
+            st.subheader("📊 Candidate Optimization Rankings")
             st.dataframe(df, use_container_width=True, hide_index=True)
-
-            # Download Button
+            
+            # 7. Download
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Optimization Report (CSV)",
-                data=csv,
-                file_name="AI_Recruitment_Report.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+            st.download_button("📥 Download Full Report (CSV)", data=csv, file_name="AI_Recruitment_Report.csv", use_container_width=True)
