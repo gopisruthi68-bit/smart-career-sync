@@ -28,7 +28,7 @@ else:
     with center:
         st.subheader("📥 Input Panel")
         jd_text = st.text_area("Job Description (JD)", placeholder="Paste requirements...", height=150)
-        linkedin_url = st.text_input("Candidate LinkedIn URL (Optional)")
+        linkedin_url = st.text_input("Candidate LinkedIn URL")
         uploaded_files = st.file_uploader("Upload Resumes (PDF Batch)", type="pdf", accept_multiple_files=True)
         
         analyze_btn = st.button("🚀 Analyze & Optimize", use_container_width=True)
