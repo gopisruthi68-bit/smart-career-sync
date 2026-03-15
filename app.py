@@ -1,7 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
 import pandas as pd
-import re
 from PyPDF2 import PdfReader
 
 # -----------------------------
@@ -14,7 +13,7 @@ st.markdown("### Resume vs Job Description + LinkedIn Analysis")
 st.divider()
 
 # -----------------------------
-# GEMINI API
+# GEMINI API SETUP
 # -----------------------------
 api_key = st.secrets.get("GEMINI_API_KEY")
 
@@ -23,7 +22,11 @@ if not api_key:
     st.stop()
 
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+model = genai.GenerativeModel(
+    "gemini-1.5-flash",
+    generation_config={"temperature":0.7}
+)
 
 # -----------------------------
 # INPUT SECTION
@@ -53,7 +56,7 @@ with col2:
     run_btn = st.button("🚀 Run AI Recruitment Analysis", use_container_width=True)
 
 # -----------------------------
-# SKILL DATABASE
+# SKILLS DATABASE
 # -----------------------------
 skills_db = [
     "python","java","sql","docker","aws","spring",
@@ -77,6 +80,7 @@ if run_btn and jd_text and uploaded_resumes:
     for i, file in enumerate(uploaded_resumes):
 
         reader = PdfReader(file)
+
         resume_text = ""
 
         for page in reader.pages:
@@ -108,20 +112,27 @@ if run_btn and jd_text and uploaded_resumes:
         linkedin_url = url_list[i] if i < len(url_list) else "Not Provided"
 
         # -----------------------------
-        # AI RECRUITER ADVICE
+        # AI ADVICE
         # -----------------------------
         prompt = f"""
 You are an expert technical recruiter.
 
-Analyze the resume against the job description.
-
 Job Description:
 {jd_text[:400]}
 
-Resume:
+Resume Text:
 {resume_text[:800]}
 
-Return 5 short suggestions to improve this resume.
+Detected Skills:
+{detected_skills}
+
+Missing Skills:
+{missing}
+
+Give exactly 5 personalized suggestions to improve this candidate's resume
+based on missing skills and job description.
+
+Return only numbered points.
 """
 
         try:
@@ -131,12 +142,12 @@ Return 5 short suggestions to improve this resume.
 
         except:
 
-            advice = """
-1. Align resume keywords with job description
-2. Highlight measurable project outcomes
-3. Add missing technical skills
-4. Improve project descriptions
-5. Optimize LinkedIn summary
+            advice = f"""
+1. Add missing skills such as {', '.join(missing[:3])}
+2. Improve project descriptions related to {', '.join(detected_skills[:2])}
+3. Align resume keywords with the job description
+4. Highlight measurable achievements
+5. Improve LinkedIn profile summary
 """
 
         results.append({
@@ -170,7 +181,7 @@ Return 5 short suggestions to improve this resume.
     st.bar_chart(df.set_index("Candidate")["Score"])
 
 # -----------------------------
-# OPTIMIZATION ADVICE
+# RESUME SUGGESTIONS
 # -----------------------------
     st.subheader("💡 Resume Optimization Suggestions")
 
