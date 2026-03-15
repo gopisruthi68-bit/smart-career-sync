@@ -2,108 +2,195 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 import re
-import time
 from PyPDF2 import PdfReader
 
-# 1. Professional Page Setup
+# -----------------------------
+# PAGE SETUP
+# -----------------------------
 st.set_page_config(page_title="AI Recruitment Pro", layout="wide")
-st.title("AI Recruitment: Transparency and Optimization")
-st.markdown("### Strategic Bulk Alignment Dashboard")
+
+st.title("AI Recruitment Optimizer")
+st.markdown("### Resume vs Job Description + LinkedIn Analysis")
 st.divider()
 
-# 2. API Setup from Secrets
+# -----------------------------
+# GEMINI API
+# -----------------------------
 api_key = st.secrets.get("GEMINI_API_KEY")
 
 if not api_key:
-    st.error("🔑 API Key Missing! Please add 'GEMINI_API_KEY' to your Streamlit Secrets.")
-else:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    st.error("🔑 Add GEMINI_API_KEY in Streamlit secrets")
+    st.stop()
 
-    # Centered Input Panel
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        jd_text = st.text_area("📋 Job Description (JD)", height=150, placeholder="Paste job requirements here...")
-        urls_input = st.text_area("🔗 LinkedIn URLs (Paste links, one per line)", height=100)
-        uploaded_resumes = st.file_uploader("📥 Upload Resumes (PDF Batch)", type="pdf", accept_multiple_files=True)
-        analyze_btn = st.button("🚀 Run Full Optimization", use_container_width=True)
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
-    if analyze_btn and jd_text and uploaded_resumes:
-        url_list = [u.strip() for u in re.split(r'[,\n]', urls_input) if u.strip()]
-        results = []
-        detailed_advice_map = {}
-        
-        status_area = st.empty()
-        progress_bar = st.progress(0)
-        
-        for index, file in enumerate(uploaded_resumes):
-            try:
-                status_area.info(f"Processing {index+1}/{len(uploaded_resumes)}: {file.name}")
-                progress_bar.progress((index + 1) / len(uploaded_resumes))
-                
-                # Buffer to prevent hitting API limits too fast
-                time.sleep(5) 
+# -----------------------------
+# INPUT SECTION
+# -----------------------------
+col1, col2, col3 = st.columns([1,2,1])
 
-                # Extract PDF Text
-                reader = PdfReader(file)
-                resume_text = ""
-                for page in reader.pages:
-                    resume_text += page.extract_text() or ""
-                
-                # Truncate text to keep the prompt small (more stable for Free API)
-                resume_text = resume_text[:1000]
-                current_url = url_list[index] if index < len(url_list) else "N/A"
+with col2:
 
-                # Ultra-stable prompt
-                prompt = f"Match Resume to JD. JD: {jd_text[:400]}. Resume: {resume_text}. URL: {current_url}. Format result as SCORE: [X]%, GAPS: [List 3], ADVICE: [5 bullet points]."
+    jd_text = st.text_area(
+        "📋 Job Description",
+        height=150,
+        placeholder="Paste job description here..."
+    )
 
-                response = model.generate_content(prompt).text
-                
-                # Parsing results
-                score_match = re.search(r'SCORE:\s*(\d+)', response)
-                gaps_match = re.search(r'GAPS:\s*(.*)', response)
-                advice_match = response.split("ADVICE:")[-1].strip() if "ADVICE:" in response else "1. Align keywords. 2. Highlight technical projects. 3. Update summary. 4. Format for ATS. 5. Quantify achievements."
+    urls_input = st.text_area(
+        "🔗 LinkedIn URLs (optional, one per line)",
+        height=100,
+        placeholder="https://linkedin.com/in/example"
+    )
 
-                results.append({
-                    "Candidate": file.name,
-                    "Score": f"{score_match.group(1)}%" if score_match else "82%",
-                    "Skill Gaps": gaps_match.group(1) if gaps_match else "Review technical stack alignment"
-                })
-                detailed_advice_map[file.name] = advice_match
+    uploaded_resumes = st.file_uploader(
+        "📄 Upload Resumes (PDF)",
+        type="pdf",
+        accept_multiple_files=True
+    )
 
-            except Exception:
-                # FALLBACK: Keeps the table full if API is busy or crashes
-                results.append({
-                    "Candidate": file.name,
-                    "Score": f"{78 + (index % 10)}%",
-                    "Skill Gaps": "Advanced CI/CD, System Architecture, Unit Testing"
-                })
-                detailed_advice_map[file.name] = "1. Align tech stack with JD keywords. 2. Highlight specific project outcomes. 3. Use standard resume fonts. 4. List relevant certifications. 5. Optimize LinkedIn profile summary."
+    run_btn = st.button("🚀 Run AI Recruitment Analysis", use_container_width=True)
 
-        # --- OUTPUT DISPLAY ---
-        status_area.empty()
-        st.balloons()
-        
-        # 1. Ranking Table
-        st.subheader("📊 Candidate Ranking & Skill Gaps")
-        df = pd.DataFrame(results)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+# -----------------------------
+# SKILL DATABASE
+# -----------------------------
+skills_db = [
+    "python","java","sql","docker","aws","spring",
+    "kubernetes","machine learning","deep learning",
+    "react","node","api","microservices",
+    "ci/cd","testing","git","linux"
+]
 
-        # 2. 5 Key Points Expanders
-        st.write("---")
-        st.subheader("💡 Strategic Optimization Steps (Top 5 Key Points)")
-        for name, advice in detailed_advice_map.items():
-            with st.expander(f"Optimization Steps for {name}"):
-                st.write(advice)
+# -----------------------------
+# ANALYSIS
+# -----------------------------
+if run_btn and jd_text and uploaded_resumes:
 
-        # 3. Download Button
-        st.write("---")
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Full Recruitment Report (CSV)",
-            data=csv,
-            file_name="AI_Optimization_Report.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-        st.success("✅ Optimization Complete!")
+    url_list = [u.strip() for u in urls_input.split("\n") if u.strip()]
+
+    results = []
+    advice_map = {}
+
+    progress = st.progress(0)
+
+    for i, file in enumerate(uploaded_resumes):
+
+        reader = PdfReader(file)
+        resume_text = ""
+
+        for page in reader.pages:
+            resume_text += page.extract_text() or ""
+
+        resume_lower = resume_text.lower()
+        jd_lower = jd_text.lower()
+
+        # -----------------------------
+        # SKILL DETECTION
+        # -----------------------------
+        detected_skills = [
+            skill for skill in skills_db
+            if skill in resume_lower
+        ]
+
+        jd_skills = [
+            skill for skill in skills_db
+            if skill in jd_lower
+        ]
+
+        match_count = len(set(detected_skills) & set(jd_skills))
+        total_needed = max(len(jd_skills),1)
+
+        score = int((match_count / total_needed) * 100)
+
+        missing = list(set(jd_skills) - set(detected_skills))
+
+        linkedin_url = url_list[i] if i < len(url_list) else "Not Provided"
+
+        # -----------------------------
+        # AI RECRUITER ADVICE
+        # -----------------------------
+        prompt = f"""
+You are an expert technical recruiter.
+
+Analyze the resume against the job description.
+
+Job Description:
+{jd_text[:400]}
+
+Resume:
+{resume_text[:800]}
+
+Return 5 short suggestions to improve this resume.
+"""
+
+        try:
+
+            response = model.generate_content(prompt)
+            advice = response.text
+
+        except:
+
+            advice = """
+1. Align resume keywords with job description
+2. Highlight measurable project outcomes
+3. Add missing technical skills
+4. Improve project descriptions
+5. Optimize LinkedIn summary
+"""
+
+        results.append({
+            "Candidate": file.name,
+            "LinkedIn": linkedin_url,
+            "Score": score,
+            "Detected Skills": ", ".join(detected_skills),
+            "Missing Skills": ", ".join(missing[:5])
+        })
+
+        advice_map[file.name] = advice
+
+        progress.progress((i+1)/len(uploaded_resumes))
+
+    st.balloons()
+
+# -----------------------------
+# RESULTS TABLE
+# -----------------------------
+    df = pd.DataFrame(results)
+
+    st.subheader("📊 Candidate Ranking Table")
+
+    st.dataframe(df, use_container_width=True)
+
+# -----------------------------
+# SCORE CHART
+# -----------------------------
+    st.subheader("📈 Candidate Score Chart")
+
+    st.bar_chart(df.set_index("Candidate")["Score"])
+
+# -----------------------------
+# OPTIMIZATION ADVICE
+# -----------------------------
+    st.subheader("💡 Resume Optimization Suggestions")
+
+    for name, advice in advice_map.items():
+
+        with st.expander(f"Suggestions for {name}"):
+
+            st.write(advice)
+
+# -----------------------------
+# DOWNLOAD REPORT
+# -----------------------------
+    csv = df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        "📥 Download Recruitment Report",
+        csv,
+        "AI_Recruitment_Report.csv",
+        "text/csv",
+        use_container_width=True
+    )
+
+    st.success("✅ AI Analysis Completed!")
